@@ -2,7 +2,7 @@
 # Author: Josh Reese                                                         #
 # Purdue Univerity Fall 2013                                                 #
 # As part of a project to investigate the impact of data distribution in a   #
-# random forest algorithm.                                                   #
+# distributed random forest algorithm.                                       #
 ##############################################################################
 ##############################################################################
 # This class will take a dataset, read it from disk and create chunks of     #
@@ -17,10 +17,13 @@ class Partitioner:
     # fname: the name of the data file
     # numChunks: the number of chunk files to produce
     # ptype: the type of partitioning to use
-    def __init__(self, fname, numChunks=2, ptype=None):
+    def __init__(self, fname, numChunks=2, ptype=None, ignored_p=[0],
+                 ignored_c=[0]):
         self.fname = fname
         self.numChunks = numChunks;
         self.ptype = ptype
+        self.ignored_p = ignored_p
+        self.ignored_c = ignored_c
 
     # this is the main method, call this to create the partitions
     def partition(self):
@@ -28,6 +31,8 @@ class Partitioner:
             self. __part()
         elif self.ptype == 'even_c':
             self.__part_even_c()
+        elif self.ptype == 'uneven_c':
+            self.__part_uneven_c()
         
     # this is a standard partitioning scheme. chunk the data into partitions as
     # evenly distributed as possible. round robin style.
@@ -93,5 +98,45 @@ class Partitioner:
         for k in class_dict:
             print k,class_dict[k]
         
+    def part_uneven_c(self):
+        # list of file descriptors. one for each chunk
+        fds = [ open('chunk%d.csv' % i,'a') for i in xrange(self.numChunks) ]
+        order_found = {}
+        x = zip(self.ignored_p,self.ignored_c)
+        print x
+        ignore_pairings = {}
+        # ignore_pairings = dict({(k,v) for k,v in zip(self.ignored_p,self.ignored_c)})
+        for p,c in zip(self.ignored_p,self.ignored_c):
+            if p in ignore_pairings:
+                ignore_pairings[p].append(c)
+            else:
+                ignore_pairings[p] = [c]
+        print ignore_pairings
+
+        # opens the file and creates chunk using round robin distribution
+        with open(self.fname,'r') as f:
+            # REMOVES THE FEATURE LABELS
+            f.readline()
+            line = f.readline()
+
+            while line != '':
+                # put the entry into the correct chunk
+                for j in xrange(self.numChunks):
+                    if line != '':             # make sure we aren't at the EOF
+                        # get the class of this line
+                        cls = line.split(',')[-1].strip('\r\n')
+                        if cls not in order_found:
+                            order_found[cls] = len(order_found)
+                        if j not in ignore_pairings:
+                                fds[j].write('%s' % line)
+                                line = f.readline()
+                        else:
+                            if order_found[cls] not in ignore_pairings[j]:
+                                fds[j].write('%s' % line)
+                                line = f.readline()
+                    else: break
+                    
+
     __part = part
     __part_even_c = part_even_c
+    __part_uneven_c = part_uneven_c
