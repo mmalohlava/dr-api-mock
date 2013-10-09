@@ -17,17 +17,18 @@ class Partitioner:
     # fname: the name of the data file
     # numChunks: the number of chunk files to produce
     # ptype: the type of partitioning to use
-    def __init__(self, fname, numChunks=2, ptype=None, ignored_p=[0],
-                 ignored_c=[0]):
+    def __init__(self, fname, tname='', numChunks=2, ptype='rr', ignored_p=[],
+                 ignored_c=[]):
         self.fname = fname
-        self.numChunks = numChunks;
+        self.tname = tname
+        self.numChunks = int(numChunks);
         self.ptype = ptype
         self.ignored_p = ignored_p
         self.ignored_c = ignored_c
 
     # this is the main method, call this to create the partitions
     def partition(self):
-        if self.ptype == None or self.ptype == 'rand':
+        if self.ptype == 'rr' or self.ptype == 'rand':
             self. __part()
         elif self.ptype == 'even_c':
             self.__part_even_c()
@@ -38,14 +39,22 @@ class Partitioner:
     # evenly distributed as possible. round robin style.
     def part(self):
         # list of file descriptors. one for each chunk
-        fds = [ open('chunk%d.csv' % i,'a') for i in xrange(self.numChunks) ]
-        
+        if self.ptype == 'rand':
+            fds = [ open('../data/shuf/%d/chunk%d.csv' %
+                         (self.numChunks,i),'w')
+                    for i in xrange(self.numChunks) ]
+        else:
+            fds = [ open('../data/rr/%d/chunk%d.csv' %
+                         (self.numChunks,i),'w')
+                    for i in xrange(self.numChunks) ]
+            
         if self.ptype == 'rand': choices_m = range(self.numChunks)
 
         # opens the file and creates chunk using round robin distribution
         with open(self.fname,'r') as f:
-            # REMOVES THE FEATURE LABELS
-            f.readline()
+            header = f.readline()
+            for x in fds: x.write(header)
+
             line = f.readline()
             while line != '':
                 if self.ptype == 'rand':
@@ -63,6 +72,10 @@ class Partitioner:
                             fds[j].write('%s' % line)
                         line = f.readline()
                     else: break
+        [ x.close for x in fds ]
+
+        # if self.ptype == 'rand': self.__testset('shuf')
+        # else: self.__testset('rr')
 
     # here we try to partition the data such that each class is represented
     # evenly among all nodes. this doesn't mean that class1 will have the same
@@ -70,13 +83,17 @@ class Partitioner:
     # of class1 will be 'evenly' distributed' across all nodes.
     def part_even_c(self):
         # list of file descriptors. one for each chunk
-        fds = [ open('chunk%d.csv' % i,'a') for i in xrange(self.numChunks) ]
+        fds = [ open('../data/even_c/%d/chunk%d.csv' %
+                     (self.numChunks,i),'w')
+                for i in xrange(self.numChunks) ]
+        
         class_dict = {}
         
         # opens the file and creates chunk using round robin distribution
         with open(self.fname,'r') as f:
-            # REMOVES THE FEATURE LABELS
-            f.readline()
+            header = f.readline()
+            for x in fds: x.write(header)
+
             line = f.readline()
             while line != '':
                 # get the class of this line
@@ -94,29 +111,32 @@ class Partitioner:
                 class_dict[cls][loc]+=1
 
                 line = f.readline()
-        
-        for k in class_dict:
-            print k,class_dict[k]
+
+        [ x.close for x in fds ]
+
+        # self.__testset('even_c')
+        # for k in class_dict:
+        #     print k,class_dict[k]
         
     def part_uneven_c(self):
         # list of file descriptors. one for each chunk
-        fds = [ open('chunk%d.csv' % i,'a') for i in xrange(self.numChunks) ]
+        fds = [ open('../data/uneven_c/%d/chunk%d.csv' %
+                     (self.numChunks,i),'w')
+                for i in xrange(self.numChunks) ]
         order_found = {}
         x = zip(self.ignored_p,self.ignored_c)
-        print x
         ignore_pairings = {}
-        # ignore_pairings = dict({(k,v) for k,v in zip(self.ignored_p,self.ignored_c)})
         for p,c in zip(self.ignored_p,self.ignored_c):
             if p in ignore_pairings:
                 ignore_pairings[p].append(c)
             else:
                 ignore_pairings[p] = [c]
-        print ignore_pairings
 
         # opens the file and creates chunk using round robin distribution
         with open(self.fname,'r') as f:
-            # REMOVES THE FEATURE LABELS
-            f.readline()
+            header = f.readline()
+            for x in fds: x.write(header)
+
             line = f.readline()
 
             while line != '':
@@ -135,8 +155,30 @@ class Partitioner:
                                 fds[j].write('%s' % line)
                                 line = f.readline()
                     else: break
+        [ x.close for x in fds ]
+        # self.__testset('uneven_c')
                     
+    def testset(self, scheme):
+        # list of file descriptors. one for each chunk
+        fds = [ open('../data/%s/%d/chunk%d.csv' %
+                     (scheme,self.numChunks,i),'w')
+                for i in xrange(self.numChunks) ]
+        
+        with open(self.tname,'r') as f:
+            header = f.readline()
+            for x in fds: x.write(header)
 
+            line = f.readline()
+            while line != '':
+                # put the entry into the correct chunk
+                for j in xrange(self.numChunks):
+                    if line != '':             # make sure we aren't at the EOF
+                        fds[j].write('%s' % line)
+                        line = f.readline()
+                    else: break
+        [ x.close for x in fds ]
+        
     __part = part
     __part_even_c = part_even_c
     __part_uneven_c = part_uneven_c
+    __testset = testset
