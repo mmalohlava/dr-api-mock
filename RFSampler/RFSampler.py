@@ -1,5 +1,7 @@
 import numpy as np
+import pandas as pd
 from Forest import Forest
+
 
 class RFSampler:
 
@@ -37,10 +39,10 @@ class RFSampler:
 
 		for leaf in self.leaves:
 				if counter % 2 == 0:
-					self.label_function[leaf] = 1
+					self.label_function[leaf] = 'C1'
 					counter = counter + 1
 				else:
-					self.label_function[leaf] = 2
+					self.label_function[leaf] = 'C2'
 					counter = counter + 1
 
 
@@ -49,7 +51,9 @@ class RFSampler:
 	'''
 
 	def get_sample(self,N,filename):	
-		sim_result = np.zeros((N,self.n+1))
+		col_names = ['A%d'%(x) for x in np.arange(1,self.n+2)]
+		sim_result = pd.DataFrame(index = np.arange(N),columns=col_names)
+
 		for sample_num in np.arange(N):
 			
 			var_index = 0
@@ -61,21 +65,22 @@ class RFSampler:
 
 				new_value = np.random.choice(curr_component[self.forest.roots[comp_index]])
 				var_index = var_index + 1 if var_index > 0 else 0
-				sim_result[sample_num, var_index  ] = new_value
+				sim_result.ix[sample_num, var_index  ] = new_value
 				old_value = new_value
 
 				
 				for i in np.arange(1,self.num_vars[comp_index]):
 					var_index = var_index + 1
 					new_value = np.random.choice(curr_component[old_value])
-					sim_result[sample_num,var_index] = (new_value - (np.sum([np.prod(self.cardinalities[:j]) for j in np.arange(var_index-1)]) +1)) % self.cardinalities[var_index] + 1
+					sim_result.ix[sample_num,var_index] = (new_value - (np.sum([np.prod(self.cardinalities[:j]) for j in np.arange(var_index-1)]) +1)) % self.cardinalities[var_index] + 1
 					old_value = new_value
 			if(np.random.random() < self.p ):
-				if self.label_function[new_value] == 1.0:
-					sim_result[sample_num,self.n] = 2.0
+				if self.label_function[new_value] == 'C1':
+					sim_result.ix[sample_num,self.n] = 'C2'
 				else:
-					sim_result[sample_num,self.n] = 1.0
+					sim_result.ix[sample_num,self.n] = 'C1'
 			else:
-				sim_result[sample_num,self.n] = self.label_function[new_value] 
-		np.savetxt(filename, sim_result,delimiter=',')
+				sim_result.ix[sample_num,self.n] = self.label_function[new_value] 
+
+		sim_result.to_csv(filename,index=False)
 
