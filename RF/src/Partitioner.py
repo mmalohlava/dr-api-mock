@@ -12,191 +12,83 @@
 
 import random,os
 
-NUM_CHUNKS = [5,10,50,100]
-
 class Partitioner:
     # parameters:
-    # fname: the name of the data file
+    # dname: the name of the data set
     # numChunks: the number of chunk files to produce
     # ptype: the type of partitioning to use
-    def __init__(self, fname, dname, tname='', numChunks=2, ptype='rr',
-                 ignored_p=[], ignored_c=[]):
-        self.fname = fname
+    def __init__(self, dname, numChunks=2, chunkSize=0, sort='none'):
         self.dname = dname
-        self.tname = tname
         self.numChunks = int(numChunks);
-        self.ptype = ptype
-        self.ignored_p = ignored_p
-        self.ignored_c = ignored_c
+        self.chunkSize = int(chunkSize)
+        self.sort = sort
 
     # this is the main method, call this to create the partitions
     def partition(self):
-        if self.ptype == 'rr' or self.ptype == 'shuf':
-            self. __part()
-        elif self.ptype == 'even_c':
-            self.__part_even_c()
-        elif self.ptype == 'uneven_c':
-            self.__part_uneven_c()
+        self.__part()
         
     # this is a standard partitioning scheme. chunk the data into partitions as
     # evenly distributed as possible. round robin style.
     def part(self):
         # list of file descriptors. one for each chunk
-        if self.ptype == 'shuf':
-            self.__makedirs()
-            fds = [ open('../data/%s/shuf/%d/chunk%d.csv' %
-                         (self.dname,self.numChunks,i),'w')
-                    for i in xrange(self.numChunks) ]
+        self.__makedirs()
+        fds = [ open('../data/%s/storage/%s_%d/%d/chunk%d.csv' %
+                     (self.dname,self.sort,self.chunkSize,self.numChunks,i),'w')
+                for i in xrange(self.numChunks) ]
+
+        with open('../data/%s/train.csv' % self.dname,'r') as f:
+            lines = f.readlines()
+        lines = map(lambda x: x.strip(' \n'), lines)
+        if self.sort != 'none':
+            lines = self.__sort_p(lines)
+
+        header = lines.pop(0)
+        for x in fds: x.write('%s\n' % header)
+
+        length = len(lines)
+        if self.chunkSize == 0:
+            self.chunkSize = length / self.numChunks
+
+        linenum=0
+        while linenum < length:
+            for i in range(self.numChunks):
+                count = 0
+                while count < self.chunkSize and linenum < length:
+                    fds[i].write('%s\n' % lines[linenum])
+                    count += 1
+                    linenum += 1
+        [ x.close for x in fds ]
+
+    def sort_p(self, lines):
+        newlines = []
+        bad = False
+        # opens the file and reads into list
+        header = lines[0].strip('\n').split(',')
+        if self.sort in header:
+            index = header.index(self.sort)
         else:
-            self.__makedirs()
-            fds = [ open('../data/%s/rr/%d/chunk%d.csv' %
-                         (self.dname,self.numChunks,i),'w')
-                    for i in xrange(self.numChunks) ]
-            
-        if self.ptype == 'shuf': choices_m = range(self.numChunks)
+            print 'No sort column being used.'
+            bad = True
+        length = len(lines[1:])
+        for line in lines[1:]:
+            line = line.split(',')
+            newlines.append(line)
 
-        # opens the file and creates chunk using round robin distribution
-        with open(self.fname,'r') as f:
-            header = f.readline()
-            for x in fds: x.write(header)
+        if not bad:
+            newlines.sort(cmp=lambda x,y: cmp(x[index],y[index]))
+        newlines.insert(0, header)
+        newlines = map(lambda x: ','.join(x), newlines)
 
-            line = f.readline()
-            while line != '':
-                if self.ptype == 'shuf':
-                    # if this isn't random enough let's try random.choice on
-                    # choices_s
-                    choices_s = choices_m[:]
-                    random.shuffle(choices_s)
-
-                # put the entry into the correct chunk
-                for j in xrange(self.numChunks):
-                    if line != '':             # make sure we aren't at the EOF
-                        if self.ptype == 'shuf':
-                            fds[choices_s.pop()].write('%s' % line)
-                        else:
-                            fds[j].write('%s' % line)
-                        line = f.readline()
-                    else: break
-        [ x.close for x in fds ]
-
-        # if self.ptype == 'shuf': self.__testset('shuf')
-        # else: self.__testset('rr')
-
-    # here we try to partition the data such that each class is represented
-    # evenly among all nodes. this doesn't mean that class1 will have the same
-    # number of instances as class2 on each node but rather that all instances
-    # of class1 will be 'evenly' distributed' across all nodes.
-    def part_even_c(self):
-        self.__makedirs()
-        # list of file descriptors. one for each chunk
-        fds = [ open('../data/%s/even_c/%d/chunk%d.csv' %
-                     (self.dname,self.numChunks,i),'w')
-                for i in xrange(self.numChunks) ]
+        return newlines
         
-        class_dict = {}
-        
-        # opens the file and creates chunk using round robin distribution
-        with open(self.fname,'r') as f:
-            header = f.readline()
-            for x in fds: x.write(header)
-
-            line = f.readline()
-            while line != '':
-                # get the class of this line
-                cls = line.split(',')[-1].strip('\r\n')
-
-                #we've seen this class before, or not
-                if cls in class_dict: dist = class_dict[cls]
-                else:
-                    dist = [0]*self.numChunks
-                    class_dict[cls] = dist[:]
-
-                # which chunk has the least amount of this class?
-                loc = dist.index(min(dist))
-                fds[loc].write('%s' % line)
-                class_dict[cls][loc]+=1
-
-                line = f.readline()
-
-        [ x.close for x in fds ]
-
-        # self.__testset('even_c')
-        # for k in class_dict:
-        #     print k,class_dict[k]
-        
-    def part_uneven_c(self):
-        self.__makedirs()
-        # list of file descriptors. one for each chunk
-        fds = [ open('../data/%s/uneven_c/%d/chunk%d.csv' %
-                     (self.dname,self.numChunks,i),'w')
-                for i in xrange(self.numChunks) ]
-        order_found = {}
-        x = zip(self.ignored_p,self.ignored_c)
-        ignore_pairings = {}
-        for p,c in zip(self.ignored_p,self.ignored_c):
-            if p in ignore_pairings:
-                ignore_pairings[p].append(c)
-            else:
-                ignore_pairings[p] = [c]
-
-        # opens the file and creates chunk using round robin distribution
-        with open(self.fname,'r') as f:
-            header = f.readline()
-            for x in fds: x.write(header)
-
-            line = f.readline()
-
-            while line != '':
-                # put the entry into the correct chunk
-                for j in xrange(self.numChunks):
-                    if line != '':             # make sure we aren't at the EOF
-                        # get the class of this line
-                        cls = line.split(',')[-1].strip('\r\n')
-                        if cls not in order_found:
-                            order_found[cls] = len(order_found)
-                        if j not in ignore_pairings:
-                                fds[j].write('%s' % line)
-                                line = f.readline()
-                        else:
-                            if order_found[cls] not in ignore_pairings[j]:
-                                fds[j].write('%s' % line)
-                                line = f.readline()
-                    else: break
-        [ x.close for x in fds ]
-        # self.__testset('uneven_c')
-                    
-    def testset(self, scheme):
-        # list of file descriptors. one for each chunk
-        fds = [ open('../data/%s/%d/chunk%d.csv' %
-                     (scheme,self.numChunks,i),'w')
-                for i in xrange(self.numChunks) ]
-        
-        with open(self.tname,'r') as f:
-            header = f.readline()
-            for x in fds: x.write(header)
-
-            line = f.readline()
-            while line != '':
-                # put the entry into the correct chunk
-                for j in xrange(self.numChunks):
-                    if line != '':             # make sure we aren't at the EOF
-                        fds[j].write('%s' % line)
-                        line = f.readline()
-                    else: break
-        [ x.close for x in fds ]
-
-
     def mkdirs(self):
-        for i in NUM_CHUNKS:
-            try:
-                os.makedirs('../data/%s/%s/%d' %
-                            (self.dname,self.ptype,self.numChunks))
-            except:
-                pass
+        try:
+            os.makedirs('../data/%s/storage/%s_%d/%d' %
+                        (self.dname,self.sort,self.chunkSize,self.numChunks))
+        except:
+            pass
                 
         
     __makedirs = mkdirs
     __part = part
-    __part_even_c = part_even_c
-    __part_uneven_c = part_uneven_c
-    __testset = testset
+    __sort_p = sort_p

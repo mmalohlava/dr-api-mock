@@ -1,33 +1,29 @@
 import Partitioner,sys
 
 def main():
-    # fname='../data/covtype/train.csv'
-    fname='../data/small/train.csv'
-    tset='../data/covtype/test.csv'
+    if len(sys.argv) < 2:
+        print 'Usage: python createPartitions data_name [chunk_size] [sort_column]'
+        exit()
+    dname = sys.argv[1]
+    if len(sys.argv) > 2: cSize = int(sys.argv[2])
+    else: cSize = 0
+    if len(sys.argv) > 3: sort = sys.argv[3]
+    else: sort = 'none'
 
-    dtype = 'small'
+    fname='../data/%s/train.csv' % dname
+    tset='../data/%s/test.csv'% dname
+
     # create round robin partitions
-    createPartitions(fname, dtype, tset, 'rr')
-
-    # create shuffled partitions
-    createPartitions(fname, dtype, tset, 'shuf')
-
-    # create even class distribution partitions
-    createPartitions(fname, dtype, tset, 'even_c')
-
-    # create unbalanced class distribution partitions
-    # here we will just say that node 0 doesnt get class 2
-    createPartitions(fname, dtype, tset, 'uneven_c', [0], [0])
-
-
-def createPartitions(fname, dname, tset, ptype, ignored_p=[], ignored_c=[]):
     for i in [5,10,50,100]:
-        numChunks = i
-        print 'Creating %d chunks partitioned with: %s' % (numChunks,ptype)
-        partitioner = Partitioner.Partitioner(fname, dname, tset, numChunks,
-                                              ptype, ignored_p, ignored_c)
-        partitioner.partition()
+        createPartitions(dname, nChunks = i, chunkSize = cSize, sort = sort)
 
+
+def createPartitions(dname, nChunks, chunkSize, sort):
+    print 'Creating %d chunks chunk size: %d for set: %s' % \
+        (nChunks,chunkSize,dname)
+    partitioner = Partitioner.Partitioner(dname, nChunks, chunkSize = chunkSize,
+                                          sort = sort)
+    partitioner.partition()
 
 
 if __name__ == '__main__':
