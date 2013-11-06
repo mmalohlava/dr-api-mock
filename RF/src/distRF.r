@@ -19,40 +19,52 @@ library(randomForest)
 #               dtype: name of the data
 #               nodes: number of nodes to create
 #               rows: number of rows to read in. used for debugging
-distTrain <- function(ptype, dtype, nodes, rows=-1) {
+distTrain <- function(dtype, nodes, trees, size, sortC, chunkSize, rows=-1) {
     err = double()
 
+    errorByClass = double(length = size)
+    counts = double(length = size)
     ## iterate over the process 5 times
-    for (m in 1:5) {
-        print(paste("Run number:",m,"nodes:",nodes,"type:",ptype))
+    for (m in 1:ITER) {
+        print(paste("Run number:",m,"nodes:",nodes,"trees:",trees,
+                    "trees/node:",trees/nodes, "type:","data:",dtype))
         fnames <- character()
         
         ## read all the chunks into a list (fnames)
         print(paste("Reading files..."))
         for (i in 0:(nodes-1)) {
+            ## print(paste("../data/",dtype,"/",ptype,"/",nodes,"/chunk",i,".csv"
+            ##             , sep=""))
             name <- paste("file",i,sep="")
             assign(name, read.csv(
-                paste("../data/",dtype,"/",ptype,"/",nodes,"/chunk",i,".csv",
-                      sep=""),
+                paste("../data/",dtype,"/compute/",sortC,"_",chunkSize,"/",
+                      nodes,"/chunk",i,".csv",sep=""),
                 header=TRUE, nrows=rows))
             fnames <- c(fnames, name)
         }
 
         ## read in the test data
         test <- read.csv(paste("../data/",dtype,"/test.csv",sep=""),
-                         header=TRUE)
+                         header=TRUE, nrows=rows)
         ## create a list of the correct answers to the test data. used later
         ## for error evaluation
-        correct = strsplit(toString(test[,"A55"]),",")
-        correct = lapply(correct, function(x) gsub(" ","",x))
+        if (dtype != "covtype")
+            correct <- strsplit(toString(test[,"A11"]),",")
+        else
+            correct <- strsplit(toString(test[,"A55"]),",")
+        correct <- lapply(correct, function(x) gsub(" ","",x))
 
         ## create a list of random forests built on the previously read chunks
         rflist = character()
         print(paste("Bulding forests..."))
         for (i in 1:nodes) {
             rfname <- paste("rf",i,sep="")
-            assign(rfname,randomForest(A55~.,data=get(fnames[i]),ntree=nodes,
-                                       norm.votes=FALSE))
+            if (dtype != "covtype")
+                assign(rfname,randomForest(A11~.,data=get(fnames[i]),
+                                           ntree=trees/nodes, norm.votes=FALSE))
+            else
+                assign(rfname,randomForest(A55~.,data=get(fnames[i]),
+                                           ntree=trees/nodes, norm.votes=FALSE))
             rflist <- c(rflist, rfname)
         }
 
@@ -70,7 +82,7 @@ distTrain <- function(ptype, dtype, nodes, rows=-1) {
         prenames = list()
         for (i in 1:length(prlist))
             prenames = c(prenames, list(colnames(get(prlist[i]))))
-        allnames <- sort(unique(unlist(prenames)))
+        allnames <- sort(unique(unlist(correct[[1]])))
 
         ## combine the predicition tables
         combined_pre <- matrix(0, nrow = nrow(get(prlist[1])),
@@ -91,148 +103,158 @@ distTrain <- function(ptype, dtype, nodes, rows=-1) {
             }
         }
 
-        ## compute the total error
-        incorrect = 0
+        ## print(combined_pre)
+        ## print(correct[[1]])
+        ## compute errors by class
         for (i in 1:nrow(combined_pre)) {
-            predClass = which.max(combined_pre[i,])
-            ## incorrect prediction
-            if (allnames[predClass] != correct[[1]][i])
-                incorrect = incorrect + 1
+            max = max(combined_pre[i,])
+            correctI = correct[[1]][i]
+            cPos = which(allnames == correct[[1]][i])
+            pos =  which(combined_pre[i,] == max(combined_pre[i,]))
+
+            ## print(paste("correct:",correct[[1]][i],"sum:",sum(combined_pre[i,]),
+            ##             "max:",max(combined_pre[i,]),"posistion:", pos,
+            ##             "correct position:", cPos))
+            if (!cPos %in% pos)
+                errorByClass[cPos] = errorByClass[cPos] + 1
+
+            counts[cPos] = counts[cPos] + 1
         }
-        err <- c(err, incorrect/nrow(combined_pre))
+        ## print(errorByClass)
+        ## compute the total error
+    ##     incorrect = 0
+    ##     for (i in 1:nrow(combined_pre)) {
+    ##         predClass = which.max(combined_pre[i,])
+    ##         ## incorrect prediction
+    ##         if (allnames[predClass] != correct[[1]][i])
+    ##             incorrect = incorrect + 1
+    ##     }
+    ##     err <- c(err, incorrect/nrow(combined_pre))
     }
-    err
+    ## err
+    ## print(errorByClass)
+    ## print(counts)
+    for (n in 1:length(errorByClass)) 
+        errorByClass[n] = errorByClass[n] / counts[n]
+    errorByClass
 }
 
 # create a forest on the whole data set, and predict with that.
 # parameters -- dtype: name of the dataset
 #               nodes: numbers of trees to use in the forest
 #               rows: number of rows to read from file. used for debugging
-singleTrain <- function(dtype, nodes, rows=-1) {
+singleTrain <- function(dtype, trees, size, rows=-1) {
     err = double()
     ## do the process more than once
-    for (i in 1:5) {
+    errorByClass = double(length = size)
+    counts = double(length = size)
+    for (i in 1:ITER) {
         ## read in training file
-        print(paste("Run number:",i,"nodes:",nodes,"type: single"))
+        print(paste("Run number:",i,"trees:",trees,"type: single data:",dtype))
         print("Reading files...")
+        ## print(paste("../data/",dtype,"/train.csv",sep=""))
         d0 <- read.csv(paste('../data/',dtype,'/train.csv',sep=''),
                        header=TRUE, nrows=rows)
 
         ## read in test file
         test = read.csv(paste('../data/',dtype,'/test.csv',sep=''),
             header=TRUE, nrows=rows)
-        correct = strsplit(toString(test[,"A55"]),",")
+        correct = strsplit(toString(test[,length(test)]),",")
         correct = lapply(correct, function(x) gsub(" ","",x))
 
         ## build the tree
         print("Building tree...")
-        rf <- randomForest(A55~.,data=d0, ntree=nodes, norm.votes=FALSE)
+        if (dtype != "covtype")
+            rf <- randomForest(A11~., data=d0, ntree=trees, norm.votes=FALSE)
+        else
+            rf <- randomForest(A55~., data=d0, ntree=trees, norm.votes=FALSE)
 
         ## predict
+        print("Predicting...")
         pre = predict(rf, test, type='vote', norm.votes=FALSE)
         allnames <- sort(unique(unlist(colnames(pre))))
 
-        ## compute the error in the predictions        
-        incorrect = 0
+        ## print(pre)
+        ## print(correct[[1]])
         for (i in 1:nrow(pre)) {
-            predClass = which.max(pre[i,])
-            ## incorrect prediction
-            if (allnames[predClass] != correct[[1]][i])
-                incorrect = incorrect + 1
+            max = max(pre[i,])
+            correctI = correct[[1]][i]
+            cPos = which(allnames == correct[[1]][i])
+            pos =  which(pre[i,] == max(pre[i,]))
+
+            if (!cPos %in% pos)
+                errorByClass[cPos] = errorByClass[cPos] + 1
+
+            counts[cPos] = counts[cPos] + 1
         }
-        err <- c(err, incorrect/nrow(pre))
+        ## print(errorByClass)
+        ## print(counts)
     }
-    err
+    ## print(errorByClass)
+    ## print(counts)
+    ## err
+    for (n in 1:length(errorByClass)) 
+        errorByClass[n] = errorByClass[n] / counts[n]
+    ## print(errorByClass)
+    errorByClass
 }
 
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) < 4)
+    stop("Usage: ./distRF num_trees chunk_size sort_column datatype_name(s)")
 # debugging
 rows = -1
-## name of data to test
-type = "covtype"
+## number of iterations for each test
+ITER <- 5
+## number of trees
+trees = strtoi(args[1])
+## size of the chunk (in lines)
+chunkSize = args[2]
+## column which the data is sorted on (or 'None')
+sortC = args[3]
+## name of data set(s) to test
+types = args[-3:-1]
 ## list of number of nodes to test
 nList = c(5,10,50,100)
+## nList = c(5)
+cNames = c("1",nList)
+print(cNames)
 ## partition types
-pNames = c("Standard", "Round Robin", "Shuffle", "Even Class", "Uneven Class")
-## matrix of averages of results
-means = matrix(0, nrow = length(nList), ncol = length(pNames))
-## matrix of standard deviations of results
-sds = matrix(0, nrow = length(nList), ncol = length(pNames))
+pNames = c("Standard", "Round Robin")
 
-for (nodes in nList) {
+for (type in types) {
+    test <- read.csv(paste("../data/",type,"/test.csv",sep=""),
+                     header=TRUE, nrows=rows)
+    if (type != "covtype")
+        correct <- strsplit(toString(test[,"A11"]),",")
+    else
+        correct <- strsplit(toString(test[,"A55"]),",")
+    remove(test)
+    correct <- lapply(correct, function(x) gsub(" ","",x))
+    allnames <- sort(unique(unlist(correct[[1]])))
+    size = length(allnames)
+
     ## train on the single RF
-    s = singleTrain(type, nodes, rows)
-    print(mean(s))
-    print(sd(s))
-    means[which(nList == nodes),1] = mean(s)
-    sds[which(nList == nodes),1] = sd(s)
+    s = singleTrain(type, trees, size, rows)
+    m <- cbind(s)
+    print(m)
+    write.csv(m, file="tmp.csv")
+    for (nodes in nList) {
 
-    ## train round robin on the distributed forest
-    rr = distTrain("rr", type, nodes, rows=rows)
-    print(mean(rr))
-    print(sd(rr))
-    means[which(nList == nodes),2] = mean(rr)
-    sds[which(nList == nodes),2] = sd(rr)
+        ## train round robin on the distributed forest
+        rr = distTrain(type, nodes, trees, size, sortC, chunkSize, rows=rows)
+        print(rr)
 
-    ## train shuffled on the distributed forest
-    shuf = distTrain("shuf", type, nodes, rows=rows)
-    print(mean(shuf))
-    print(sd(shuf))
-    means[which(nList == nodes),3] = mean(shuf)
-    sds[which(nList == nodes),3] = sd(shuf)
-
-    ## train even class distribution on the distributed forest
-    even_c= distTrain("even_c", type, nodes, rows=rows)
-    print(mean(even_c))
-    print(sd(even_c))
-    means[which(nList == nodes),4] = mean(even_c)
-    sds[which(nList == nodes),4] = sd(even_c)
-
-    ## train uneven class distribution on the distributed forest
-    uneven_c= distTrain("uneven_c", type, nodes, rows=rows)
-    print(mean(uneven_c))
-    print(sd(uneven_c))
-    means[which(nList == nodes),5] = mean(uneven_c)
-    sds[which(nList == nodes),5] = sd(uneven_c)
-
-    meanRun = c(mean(s),mean(rr),mean(shuf),mean(even_c),mean(uneven_c))
-    sdRun = c(sd(s),sd(rr),sd(shuf),sd(even_c),sd(uneven_c))
-    plotname = paste(nodes,".png",sep="")
-    png(plotname, width=1200, height = 600)
-
-    ## create barplot for this amount of nodes (partition type vs. error)
-    bp <- barplot(meanRun,
-            main=paste("Error rates vs Partition scheme\nFor",nodes,"nodes"),
-            xlab="Partitioning scheme",, ylab="Error rate",
-            names.arg=pNames, ylim=c(0,1),
-            cex.names=1.2, cex.axis=1.2, cex.lab=1.75, cex.main=2.25)
-    
-    arrows(bp, meanRun+sdRun, bp, meanRun-sdRun, angle=90, code=3, length=0.1)
-    dev.off()
+        tmp = read.csv(file="tmp.csv", row.names=1)
+        m <- cbind(tmp, rr)
+        print(m)
+        write.csv(m, file="tmp.csv")
+    }
+    tmp = read.csv(file="tmp.csv", row.names=1)
+    colnames(tmp) <- cNames
+    rownames(tmp) <- allnames
+    print(tmp)
+    write.csv(tmp, file=paste("../results/data/",type,"_",chunkSize,"_",sortC,
+                           ".csv",sep=""))
+    unlink("tmp.csv")
 }
-print(means)
-print(sds)
-## create line graph for nodes vs. error
-plotname = "nodesVSerr.png"
-png(plotname, width=1000, height = 600)
-
-xrange = 1:length(nList)
-print(xrange)
-co = c("black","blue","red","green","purple")
-
-p <- plot(xrange, means[,1], ylim=c(0,1), type='b', xaxt="n",
-          xlab="Number of random forests", ylab="Error rate", pch=16)
-
-legend(tail(xrange,1)-0.4, 1.0, legend=pNames, lty=c(1,1), lwd=c(2.5,2.5),
-       col=co)
-for (i in 2:length(means[1,]))
-    points(xrange, means[,i], col=co[i], type='b')
-
-for (col in 1:ncol(means))
-    for (row in xrange) 
-        if (sds[row,col] > 0.00001) 
-            arrows(row,means[row,col]+sds[row,col],row,
-                   means[row,col]-sds[row,col],
-                   angle=90, code=3, length=0.05)
-
-axis(1, at=xrange, label=nList)
-dev.off()

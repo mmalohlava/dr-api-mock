@@ -86,6 +86,7 @@ class Partitioner:
             os.makedirs('../data/%s/storage/%s_%d/%d' %
                         (self.dname,self.sort,self.chunkSize,self.numChunks))
         except:
+            print 'fail'
             pass
                 
         

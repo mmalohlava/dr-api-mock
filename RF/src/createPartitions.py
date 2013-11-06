@@ -21,7 +21,8 @@ def main():
 def createPartitions(dname, nChunks, chunkSize, sort):
     print 'Creating %d chunks chunk size: %d for set: %s' % \
         (nChunks,chunkSize,dname)
-    partitioner = Partitioner.Partitioner(dname, nChunks, chunkSize = chunkSize,
+    partitioner = Partitioner.Partitioner(dname, nChunks,
+                                          chunkSize = chunkSize,
                                           sort = sort)
     partitioner.partition()
 
